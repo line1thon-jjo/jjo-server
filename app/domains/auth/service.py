@@ -76,3 +76,10 @@ def complete_signup(db: Session, identity: GoogleIdentity, marketing: bool) -> U
     user.marketing_agreed = marketing
     db.flush()
     return user
+
+
+def complete_onboarding(db: Session, user: User) -> User:
+    """Mark the authenticated user complete; the caller owns the transaction."""
+    user.onboarding_completed = True
+    db.flush()
+    return user

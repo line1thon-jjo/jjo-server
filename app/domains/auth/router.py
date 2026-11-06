@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.security import issue, verify
 from app.domains.auth.google import verify_google
 from app.domains.auth.schemas import GoogleRequest, SignupRequest
-from app.domains.auth.service import GoogleIdentity, get_user_by_google_sub, get_user_by_id, complete_signup
+from app.domains.auth.service import GoogleIdentity, get_user_by_google_sub, get_user_by_id, complete_signup, complete_onboarding
 
 class AuthError(Exception):
     def __init__(self, status, code, fields=None):
@@ -83,8 +83,7 @@ def signup(body: SignupRequest, db=Depends(get_db)):
     except RuntimeError:
         raise AuthError(503, "AUTH_CONFIGURATION_ERROR")
 
-@router.get('/me')
-def me(auth=Depends(bearer), db=Depends(get_db)):
+def get_current_user(auth=Depends(bearer), db=Depends(get_db)):
     if auth is None:
         raise AuthError(401, "ACCESS_CREDENTIAL_INVALID")
     claims = credential("access", auth.credentials)
@@ -95,4 +94,19 @@ def me(auth=Depends(bearer), db=Depends(get_db)):
     user = get_user_by_id(db, uid)
     if user is None or user.terms_agreed_at is None:
         raise AuthError(401, "ACCESS_CREDENTIAL_INVALID")
+    return user
+
+@router.get('/me')
+def me(user=Depends(get_current_user)):
     return dict(user=user_response(user), next_step="practices" if user.onboarding_completed else "onboarding")
+
+@router.post('/onboarding/complete')
+def onboarding_complete(user=Depends(get_current_user), db=Depends(get_db)):
+    """Complete onboarding for the access credential's owner; no body is required."""
+    try:
+        complete_onboarding(db, user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return dict(user=user_response(user), next_step="practices")

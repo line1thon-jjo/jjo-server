@@ -1,7 +1,11 @@
 from datetime import datetime, timezone
+import os
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, Integer, MetaData, select, func, event
+from sqlalchemy.schema import CreateSchema, DropSchema
 from sqlalchemy.orm import Session
 from app.main import app
 from app.core.database import get_db
@@ -12,29 +16,54 @@ from app.domains.auth.models import User
 from app.domains.auth.service import GoogleIdentity
 import jwt
 
-@pytest.fixture
-def client(monkeypatch):
+@pytest.fixture(params=['sqlite', 'postgresql'])
+def client(monkeypatch, request):
     monkeypatch.setattr(settings, 'signup_token_secret', 's' * 40)
     monkeypatch.setattr(settings, 'access_token_secret', 'a' * 40)
-    engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=__import__('sqlalchemy').pool.StaticPool)
-    @event.listens_for(engine, 'connect')
-    def connect(c, _):
-        c.isolation_level = None
-    @event.listens_for(engine, 'begin')
-    def begin(c):
-        c.exec_driver_sql('BEGIN')
-    table = User.__table__.to_metadata(MetaData())
-    table.c.id.type = Integer()
-    table.create(engine)
-    def session():
-        with Session(engine, expire_on_commit=False) as db:
-            yield db
-    app.dependency_overrides[get_db] = session
-    monkeypatch.setattr(routes, 'verify_google', lambda _: GoogleIdentity('subject', 'person@example.test', 'Name'))
-    with TestClient(app) as c:
-        yield c, engine
-    app.dependency_overrides.clear()
-    engine.dispose()
+    schema = None
+    if request.param == 'postgresql':
+        url = os.environ.get('AUTH_TEST_DATABASE_URL')
+        if not url:
+            pytest.skip('AUTH_TEST_DATABASE_URL is not configured')
+        engine = create_engine(url)
+        if engine.dialect.name != 'postgresql':
+            engine.dispose()
+            pytest.fail('AUTH_TEST_DATABASE_URL must point to PostgreSQL')
+        schema = 'auth_api_test_' + uuid4().hex
+        # Real request commits must survive into independent sessions. Isolate
+        # those commits in a new schema, never production/public tables.
+        with engine.begin() as connection:
+            connection.execute(CreateSchema(schema))
+        engine = engine.execution_options(schema_translate_map={None: schema})
+    else:
+        engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=__import__('sqlalchemy').pool.StaticPool)
+        @event.listens_for(engine, 'connect')
+        def connect(c, _):
+            c.isolation_level = None
+        @event.listens_for(engine, 'begin')
+        def begin(c):
+            c.exec_driver_sql('BEGIN')
+    try:
+        table = User.__table__.to_metadata(MetaData())
+        if schema is None:
+            table.c.id.type = Integer()
+        table.create(engine)
+        def session():
+            with Session(engine, expire_on_commit=False) as db:
+                yield db
+        app.dependency_overrides[get_db] = session
+        monkeypatch.setattr(routes, 'verify_google', lambda _: GoogleIdentity('subject', 'person@example.test', 'Name'))
+        with TestClient(app) as c:
+            yield c, engine
+    finally:
+        app.dependency_overrides.clear()
+        try:
+            if schema is not None:
+                # Drop only this fixture's randomly named schema and its data.
+                with engine.begin() as connection:
+                    connection.execute(DropSchema(schema, cascade=True))
+        finally:
+            engine.dispose()
 
 
 def pending(c):
@@ -212,3 +241,74 @@ def test_health_without_auth_configuration(monkeypatch):
     with TestClient(app) as c:
         assert c.get('/health').json() == {'status':'ok'}
         assert c.post('/auth/google', json={'id_token':'test'}).status_code == 503
+
+
+def test_onboarding_completion_persists_and_is_idempotent(client):
+    c, engine = client
+    account = signup(c, pending(c)).json()
+    headers = {'Authorization': 'Bearer ' + account['access_token']}
+    with Session(engine) as db:
+        other = User(google_sub='other', email='other@example.test', name='Other',
+                     terms_agreed_at=datetime.now(timezone.utc))
+        db.add(other)
+        db.commit()
+        other_id = other.id
+
+    for _ in range(2):
+        response = c.post('/auth/onboarding/complete', headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json() == {
+            'user': dict(account['user'], onboarding_completed=True),
+            'next_step': 'practices',
+        }
+        # A fresh session proves the endpoint committed, rather than only flushed.
+        with Session(engine) as db:
+            assert db.get(User, account['user']['id']).onboarding_completed is True
+            assert db.get(User, other_id).onboarding_completed is False
+        assert c.get('/auth/me', headers=headers).json() == response.json()
+
+    # Even unsolicited identity data cannot select another user's account.
+    assert c.post('/auth/onboarding/complete', headers=headers,
+                  json={'user_id': other_id}).status_code == 200
+    with Session(engine) as db:
+        assert db.get(User, other_id).onboarding_completed is False
+    login = c.post('/auth/google', json={'id_token': 'test'}).json()
+    assert login['user']['onboarding_completed'] is True
+    assert login['next_step'] == 'practices'
+    assert c.get('/auth/me', headers={'Authorization': 'Bearer ' + login['access_token']}).json()['user']['onboarding_completed'] is True
+
+
+def test_onboarding_rejects_invalid_credentials_without_writes(client):
+    c, engine = client
+    signup_token = pending(c)
+    account = signup(c, signup_token).json()
+    with Session(engine) as db:
+        incomplete = User(google_sub='incomplete', email='incomplete@example.test', name='Incomplete')
+        db.add(incomplete)
+        db.commit()
+        incomplete_id = incomplete.id
+    for token in [None, 'invalid', signup_token, issue('access', '999'),
+                  issue('access', str(incomplete_id)), issue('access', 'not-an-id')]:
+        headers = {} if token is None else {'Authorization': 'Bearer ' + token}
+        response = c.post('/auth/onboarding/complete', headers=headers)
+        assert response.status_code == 401
+        assert response.json()['error']['code'] == 'ACCESS_CREDENTIAL_INVALID'
+        me = c.get('/auth/me', headers=headers)
+        assert me.status_code == response.status_code
+        assert me.json() == response.json()
+    with Session(engine) as db:
+        assert all(user.onboarding_completed is False for user in db.scalars(select(User)))
+
+
+def test_onboarding_rollback_on_failure(client, monkeypatch):
+    c, engine = client
+    account = signup(c, pending(c)).json()
+    original = routes.complete_onboarding
+    def fail(db, user):
+        original(db, user)
+        raise RuntimeError('failure after completion flush')
+    monkeypatch.setattr(routes, 'complete_onboarding', fail)
+    with pytest.raises(RuntimeError, match='failure after completion flush'):
+        c.post('/auth/onboarding/complete', headers={'Authorization': 'Bearer ' + account['access_token']})
+    with Session(engine) as db:
+        assert db.get(User, account['user']['id']).onboarding_completed is False
