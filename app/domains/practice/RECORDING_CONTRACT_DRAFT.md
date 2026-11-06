@@ -90,21 +90,16 @@ data: RecordingAnalysisInput = get_recording_for_analysis(
 
 ## 배포 전 확인 및 보류한 변경
 
-- 현재 브랜치 `pyproject.toml`에 `python-multipart`가 없다.
-  실행 환경에서 업로드를 사용하려면 해당 패키지가 필요하다. 파싱은 인증된
-  업로드 요청 시 수행하므로 패키지가 없어도 기존 API는 기동한다. 인증된
-  업로드 요청은 `503 UPLOAD_CONFIGURATION_ERROR`를 반환한다.
-- 여섯 번째 `feat/be1-script-upload` 브랜치에는
-  `"python-multipart>=0.0.20,<0.1"`가 이미 있다. 읽기 전용으로 확인했으며
-  브랜치를 병합하지 않았다. 현재 저장소에는 추적 중인 잠금 파일이 없다.
-- 검토 시 원격 main의 최신 SHA를 `git ls-remote`로 확인하고 해당 커밋
-  `7408979f21a2460ecfc3e5eaefdab107fcae500c`의 pyproject.toml을 원격에서
-  읽었다. python-multipart는 아직 반영되지 않았다. 로컬 main/origin/main
-  참조는 더 오래된 커밋이며 이번 작업에서 이동시키지 않았다.
-- 이번 PR은 의존성을 중복 추가하지 않는다. PR에 명시할 실행 전제/머지 순서:
-  **여섯 번째 PR 머지 → 의존성 재설치 → 일곱 번째 PR 머지/배포**.
-  테스트 환경에는 python-multipart가 설치되어 있어야 한다. 여섯 번째 PR과
-  이번 변경이 겹치는 practice 파일은 통합 시 두 기능을 보존해 충돌을 해결한다.
+- 연습 목록·상세 조회(PR #6)와 TXT 대본 업로드(PR #7)는 main에 머지됐다.
+  기능 순서상 여섯 번째인 TXT 업로드 PR의 머지 대기는 해소됐다.
+- `origin/main`의 `92cd56dde4575469c51bc72d5aee0c8a8f30bd83`을
+  현재 브랜치에 병합하여 두 업로드와 조회 기능을 함께 반영했다.
+  해당 main에는 `"python-multipart>=0.0.20,<0.1"` 의존성이 선언되어 있다.
+  별도 의존성 추가나 선행 기능 브랜치 병합은 필요하지 않다.
+- 배포 시 병합된 `pyproject.toml` 기준으로 의존성을 재설치한다.
+  저장소에는 추적 중인 잠금 파일이 없다. 검증 가상환경은
+  python-multipart 0.0.33을 사용한다. TXT 업로드 라우터는 앱 구성 시에도
+  이 패키지가 필요하므로, 누락 환경에서 앱 기동을 보장하지 않는다.
 - TEAM.md 2장에 app/core/storage.py와 app/domains/practice/가 BE1 담당으로
   명시되어 있다. 이 초안은 practice 내부의 제안 문서이며 공용 docs/나
   app/contracts/에 확정 계약을 추가하는 변경이 아니다. 현 변경 범위에는
@@ -146,5 +141,16 @@ PostgreSQL 테스트는 임의의 별도 스키마를 만들고 정리한다. �
   중단, 파싱 중 연결 종료·취소·I/O 오류·잘린 multipart의 스풀 닫기를 검증했다.
 - 실제 업로드 성공·20 MiB 경계·오류 응답에서 스풀 파일 닫기를 확인했다.
   삭제 실패가 원래 DB/저장 오류를 덮어쓰지 않는지도 확인했다.
-- python-multipart import를 차단한 별도 프로세스에서 기존 앱 기동,
-  health, OpenAPI가 동작하는지 확인했다.
+- 병합 전 녹음 전용 코드에서는 python-multipart import 차단 상태의 기동을
+  확인했다. TXT 업로드가 포함된 병합 후 앱에는 이 결과를 적용하지 않는다.
+
+main 병합 후 통합 검증:
+
+- 별도 PostgreSQL 테스트 DB로 전체 테스트: `263 passed, 4 skipped`.
+  네 skip은 SQLite 조합의 PostgreSQL 전용 검사이며 실제 PostgreSQL 동시성·
+  행 잠금 검사는 통과했다. 기존 수동 테스트 DB의 임의 스키마만 사용했다.
+- 새 프로세스의 OpenAPI에 연습 생성·목록·상세, TXT 업로드, 녹음 업로드가
+  함께 존재하며, 두 multipart API의 스키마와 정적 경로 등록을 확인했다.
+- `pip check`, 일반 및 staged `git diff --check`를 통과했다.
+- 기존 수동 HTTP 서버는 재시작하지 않았다. 이전 실제 M4A 검증은 병합 전
+  코드의 결과이며, 이번 통합 코드의 실제 HTTP·음원 재검증을 뜻하지 않는다.
