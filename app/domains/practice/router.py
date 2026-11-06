@@ -5,9 +5,11 @@ from app.core.database import get_db
 from app.domains.auth.models import User
 from app.domains.auth.router import AuthError, AuthRoute, get_current_user
 from app.domains.practice.schemas import PracticeCreate, PracticeResponse
+from app.domains.practice.script_upload_router import router as script_upload_router
 from app.domains.practice.service import create_practice, get_practice, list_practices
 
 router = APIRouter(prefix="/practices", tags=["practice"], route_class=AuthRoute)
+router.include_router(script_upload_router)
 
 
 @router.get("", response_model=list[PracticeResponse])
