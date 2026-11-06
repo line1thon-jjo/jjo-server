@@ -6,8 +6,10 @@ from app.domains.auth.models import User
 from app.domains.auth.router import AuthRoute, get_current_user
 from app.domains.practice.schemas import PracticeCreate, PracticeResponse
 from app.domains.practice.service import create_practice
+from app.domains.practice.script_upload_router import router as script_upload_router
 
 router = APIRouter(prefix="/practices", tags=["practice"], route_class=AuthRoute)
+router.include_router(script_upload_router)
 
 
 @router.post("", status_code=201, response_model=PracticeResponse)
