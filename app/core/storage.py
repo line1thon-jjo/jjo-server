@@ -1,6 +1,8 @@
 """로컬 녹음 저장소. 헤더 검사는 디코딩/재생 가능성 검증이 아니다."""
 
 import logging
+import os
+import stat
 from pathlib import Path
 from typing import BinaryIO, Protocol
 from uuid import uuid4
@@ -90,9 +92,27 @@ class LocalRecordingStorage:
 
     def delete(self, audio_path: str) -> None:
         path = Path(audio_path)
-        if path.parent != self.root:
+        if path.parent != self.root or str(path) != audio_path:
             raise ValueError("Recording path is outside storage")
-        path.unlink(missing_ok=True)
+        # Pin the directory and never follow its final component or the file's
+        # symlink. unlinkat removes the entry itself, never a symlink target.
+        try:
+            fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            return
+        try:
+            try:
+                info = os.stat(path.name, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("Recording must be a regular, unlinked file")
+            try:
+                os.unlink(path.name, dir_fd=fd)
+            except FileNotFoundError:
+                pass
+        finally:
+            os.close(fd)
 
 
 def get_recording_storage() -> RecordingStorage:
