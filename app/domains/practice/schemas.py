@@ -27,3 +27,42 @@ class PracticeResponse(BaseModel):
     script: str
     created_at: datetime
     updated_at: datetime
+
+
+class RecordingResponse(BaseModel):
+    recording_id: int
+    practice_id: int
+    attempt_no: int
+    duration_ms: int
+    created_at: datetime
+
+
+class RecordingMetadata(BaseModel):
+    # 기존 PostgreSQL INTEGER 컬럼의 범위. 실제 음원 길이 검증이 아니다.
+    duration_ms: int = Field(gt=0, le=2147483647)
+
+
+class RecordingErrorDetail(BaseModel):
+    code: str
+    message: str
+    fields: list[str]
+
+
+class RecordingErrorResponse(BaseModel):
+    error: RecordingErrorDetail
+
+
+class RecordingAnalysisInput(BaseModel):
+    """BE2 계약 초안. audio_path는 내부 경로, duration_ms는 클라이언트 값.
+
+    길이와 헤더 검사는 실제 디코딩이나 분석 구간의 유효성을 보장하지 않는다.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    recording_id: int
+    practice_id: int
+    attempt_no: int
+    script_snapshot: str
+    audio_path: str
+    duration_ms: int
