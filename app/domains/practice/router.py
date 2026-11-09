@@ -15,6 +15,7 @@ from app.domains.practice.schemas import (
     PracticeCreate, PracticeResponse, RecordingErrorResponse, RecordingMetadata, RecordingResponse,
 )
 from app.domains.practice.script_upload_router import router as script_upload_router
+from app.domains.practice.settings_router import router as settings_router
 from app.domains.practice.service import (
     RecordingNotFoundError, create_practice, get_practice, list_practices, upload_recording,
 )
@@ -149,3 +150,11 @@ def upload(
         raise AuthError(404, "PRACTICE_NOT_FOUND") from None
     except AudioValidationError as exc:
         raise AuthError(exc.status_code, exc.code) from None
+
+
+# Aggregate BE1 routes here so app/main.py remains untouched. Account deletion
+# needs practice data; auth must not import the practice domain.
+practice_router = router
+router = APIRouter()
+router.include_router(practice_router)
+router.include_router(settings_router)
