@@ -29,9 +29,10 @@ Python, FastAPI, Pydantic v2, SQLAlchemy 2.x, Alembic, PostgreSQL
 | --- | --- | --- |
 | auth | core | 타 도메인, speech |
 | practice | core, auth | report, speech |
-| report | core, contracts, practice(service만), speech(analyze만) | practice 내부 models |
+| report | core, contracts, auth(get_current_user·AuthRoute만), practice(service만), speech(analyze만) | practice 내부 models |
 | speech | contracts | core, domains 전체 |
 | contracts | 없음 | 전체 |
 
 - speech는 FastAPI·DB를 모르는 순수 분석 모듈 (단독 실행·테스트 가능)
 - report는 practice 데이터를 service 함수로만 조회
+- report는 auth에서 get_current_user, AuthRoute만 import

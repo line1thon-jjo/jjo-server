@@ -43,12 +43,13 @@ app/
 | --- | --- | --- |
 | auth | core | 타 도메인, speech |
 | practice | core, auth | report, speech |
-| report | core, contracts, practice(service만), speech(analyze만) | practice 내부 models |
+| report | core, contracts, auth(get_current_user·AuthRoute만), practice(service만), speech(analyze만) | practice 내부 models |
 | speech | contracts | core, domains 전체 |
 | contracts | 없음 | 전체 |
 
 - `speech`는 FastAPI·DB를 모르는 순수 분석 모듈이다. 단독으로 실행하고 테스트할 수 있어야 한다.
 - `report`는 `practice` 데이터를 service 함수로만 조회한다. 다른 도메인의 테이블을 직접 조회하지 않는다.
+- `report`는 로그인 확인과 에러 응답 형식을 맞추기 위해 `auth`의 `get_current_user`와 `AuthRoute`만 가져다 쓴다.
 - 분석 요청 흐름: 녹음 업로드(practice) → 분석 요청(report가 상태 저장 후 백그라운드 시작) → `speech.analyze(audio_path, script)` 실행 → 분석 JSON 저장 → AI 피드백 생성 → 완료. 프론트는 상태를 주기적으로 조회한다.
 
 ## 4. 팀원 허락이 필요한 변경

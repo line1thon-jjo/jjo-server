@@ -5,9 +5,37 @@ response_model_exclude_none=True 로 직렬화한다. 필드 설명은 docs/REPO
 """
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.contracts.analysis_result import HabitType
+from app.domains.report.models import ReportStatus
+
+
+class StartAnalysisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recording_id: int
+
+
+class Failure(BaseModel):
+    code: str  # 분석 실패 사유 코드. 문구는 프론트가 정한다.
+
+
+class ReportStatusResponse(BaseModel):
+    """리포트 상태와 화면 헤더. failure 는 FAILED 일 때만, warnings 는 COMPLETED 일 때만 채워진다."""
+
+    recording_id: int
+    status: ReportStatus
+    practice_title: str
+    attempt_no: int
+    duration_ms: int
+    failure: Failure | None = None
+    warnings: list[str] = []
+
+
+class AudioUrlResponse(BaseModel):
+    audio_url: str  # API 주소 기준 상대 경로. 프론트가 API 주소를 앞에 붙인다.
+    expires_in_seconds: int
 
 
 class Mark(BaseModel):
