@@ -13,11 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.contracts.analysis_result import SCHEMA_VERSION, AnalysisResult, ErrorCode
-from app.domains.practice.service import RecordingNotFoundError, get_recording_for_analysis
+from app.domains.practice.service import RecordingNotFoundError, get_practice, get_recording_for_analysis
 from app.domains.report.models import Report, ReportStatus
 
 __all__ = [
-    "AnalysisInput", "StartResult", "RecordingNotFoundError", "start_analysis", "get_report",
+    "AnalysisInput", "StartResult", "ReportView", "RecordingNotFoundError", "start_analysis", "get_report",
+    "get_report_view",
     "claim_for_analysis", "save_success", "save_failure", "is_supported_version", "clear_active",
     "is_active",
 ]
@@ -34,6 +35,15 @@ class AnalysisInput(Protocol):
 
     @property
     def recording_id(self) -> int: ...
+
+    @property
+    def practice_id(self) -> int: ...
+
+    @property
+    def attempt_no(self) -> int: ...
+
+    @property
+    def duration_ms(self) -> int: ...
 
     @property
     def audio_path(self) -> str: ...
@@ -117,13 +127,30 @@ def start_analysis(db: Session, *, user_id: int, recording_id: int) -> StartResu
     return StartResult(report=report, job=recording if run else None)
 
 
-def get_report(db: Session, *, user_id: int, recording_id: int) -> Report | None:
-    """리포트를 조회한다. 없으면 None. 녹음이 없거나 타인 소유면 RecordingNotFoundError.
+class ReportView(NamedTuple):
+    report: Report | None  # 아직 분석을 시작하지 않았으면 None
+    recording: AnalysisInput
+    practice_title: str
 
-    PENDING/ANALYZING 인데 이 프로세스가 작업을 들고 있지 않으면 서버가 꺼지면서 끊긴 것이므로
+
+def get_report(db: Session, *, user_id: int, recording_id: int) -> Report | None:
+    """리포트를 조회한다. 없으면 None. 녹음이 없거나 타인 소유면 RecordingNotFoundError."""
+    recording = get_recording_for_analysis(db, recording_id=recording_id, user_id=user_id)
+    return _report_for(db, recording)
+
+
+def get_report_view(db: Session, *, user_id: int, recording_id: int) -> ReportView:
+    """리포트와 화면 헤더에 필요한 녹음·연습 정보를 함께 조회한다."""
+    recording = get_recording_for_analysis(db, recording_id=recording_id, user_id=user_id)
+    report = _report_for(db, recording)
+    practice = get_practice(db, user_id=user_id, practice_id=recording.practice_id)
+    return ReportView(report=report, recording=recording, practice_title=practice.title if practice else "")
+
+
+def _report_for(db: Session, recording: AnalysisInput) -> Report | None:
+    """PENDING/ANALYZING 인데 이 프로세스가 작업을 들고 있지 않으면 서버가 꺼지면서 끊긴 것이므로
     FAILED(INTERNAL)로 정리해서 화면이 영원히 "분석 중"에 머물지 않게 한다.
     """
-    recording = get_recording_for_analysis(db, recording_id=recording_id, user_id=user_id)
     report = _find_report(db, recording.recording_id)
     if (
         report is not None
