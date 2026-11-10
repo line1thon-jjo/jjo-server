@@ -1,1 +1,86 @@
-# report 도메인 (schemas) - BE2 담당: 분석 요청/상태, 결과 조회, 비교, AI 피드백
+"""report 도메인 응답 스키마 (BE2 담당). 키는 auth·practice API와 같은 snake_case.
+
+값이 없는 필드는 내려가지 않아야 하므로(예: 평범한 글자의 pitch) 라우터에서
+response_model_exclude_none=True 로 직렬화한다. 필드 설명은 docs/REPORT_API.md 참고.
+"""
+from typing import Literal
+
+from pydantic import BaseModel
+
+from app.contracts.analysis_result import HabitType
+
+
+class Mark(BaseModel):
+    """모양을 바꿀 글자. pitch 와 stretch 는 둘 중 하나만 있을 수도 있다."""
+
+    idx: int
+    pitch: int | None = None  # 1, 2, 6, 7 중 하나
+    stretch: float | None = None  # 본인 평균 길이의 몇 배인지
+
+
+class Pace(BaseModel):
+    start_idx: int
+    end_idx: int
+    label: Literal["FAST", "SLOW"]
+
+
+class NotablePause(BaseModel):
+    after_idx: int
+    duration_ms: int
+
+
+class Segment(BaseModel):
+    start_idx: int
+    end_idx: int
+    start_ms: int
+    end_ms: int
+
+
+class Replaced(BaseModel):
+    start_idx: int
+    end_idx: int
+    spoken: str
+    script_text: str | None = None
+
+
+class Added(BaseModel):
+    start_idx: int
+    end_idx: int
+    spoken: str
+
+
+class Skipped(BaseModel):
+    start_idx: int
+    end_idx: int
+
+
+class SpeedCounts(BaseModel):
+    fast: int
+    normal: int
+    slow: int
+    measured: int  # fast + normal + slow
+
+
+class HabitCount(BaseModel):
+    type: HabitType
+    count: int
+
+
+class OverviewStats(BaseModel):
+    """전체 결과 탭 중 분석 결과에서 계산되는 부분. 총평(summary)은 AI 피드백에서 온다."""
+
+    speed: SpeedCounts
+    habits: list[HabitCount]
+
+
+class UtteranceAnalysis(BaseModel):
+    """발화 분석 탭."""
+
+    spoken_text: str
+    marks: list[Mark]
+    paces: list[Pace]
+    pauses: list[NotablePause]
+    segments: list[Segment]
+    replaced: list[Replaced]
+    added: list[Added]
+    skipped: list[Skipped]
