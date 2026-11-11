@@ -19,5 +19,8 @@ class Settings(BaseSettings):
     gemini_feedback_model: str = "gemini-3.5-flash-lite"  # 분석 리포트 AI 피드백(report). flash 는 무료 하루 20회라 lite 사용
     gemini_feedback_fallback_model: str = "gemini-3.5-flash-lite"  # 서버 혼잡일 때 재시도용. 시연 때 flash 로 올리는 것 검토
 
+    # 서버 시작 때 음성 분석 모델(Whisper)을 미리 올린다. 첫 실행은 모델을 내려받아 오래 걸린다. 테스트에서는 끈다.
+    speech_warm_up: bool = True
+
 
 settings = Settings()
