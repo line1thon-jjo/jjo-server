@@ -183,10 +183,9 @@ def test_completed_status_overview_and_utterance(env):
     assert status["warnings"] == ["PARTIAL_ALIGNMENT"]  # 정의되지 않은 경고 코드는 내려가지 않는다
 
     overview = env.c.get(f"/reports/{env.ids.own}/overview", headers=env.headers).json()
-    assert overview == {
-        "speed": {"fast": 1, "normal": 1, "slow": 0, "measured": 2},
-        "habits": [{"type": "END_RISE", "count": 3}],
-    }
+    assert overview["speed"] == {"fast": 1, "normal": 1, "slow": 0, "measured": 2}
+    assert overview["habits"] == [{"type": "END_RISE", "count": 3}]
+    assert overview["summary"]["headline"] and overview["summary"]["footer"]  # 키가 없어 규칙 총평
 
     utterance = env.c.get(f"/reports/{env.ids.own}/utterance", headers=env.headers).json()
     assert utterance["spoken_text"] == TEXT
@@ -196,6 +195,42 @@ def test_completed_status_overview_and_utterance(env):
     assert utterance["skipped"] == [{"start_idx": 11, "end_idx": 12}]
     assert utterance["replaced"] == [] and utterance["added"] == []
     assert utterance["segments"][0]["start_idx"] == 0 and utterance["segments"][-1]["end_idx"] == len(TEXT) - 1
+
+
+def test_feedback_tab_uses_saved_feedback(env):
+    env.start()
+    saved = {
+        "version": 1, "source": "gemini", "model": "m",
+        "summary": {"headline": "안정적이었어요.", "footer": "끝 올림만 다듬어 보세요."},
+        "items": [{"rank": 1, "title": "끝 내리기", "quote": "안녕하세요", "body": "끝이 올라갔어요.",
+                   "start_ms": 0, "end_ms": 500, "start_idx": 0, "end_idx": 4, "kind": "END_RISE"}],
+    }
+    report_id, job = env.jobs.pop(0)
+    worker.run_job(report_id, job, lambda p, s: make_result(), lambda: Session(env.engine, expire_on_commit=False),
+                   lambda result: saved)
+    body = env.c.get(f"/reports/{env.ids.own}/feedback", headers=env.headers).json()
+    assert body == {"items": saved["items"]}  # source·model 은 내려가지 않음
+    summary = env.c.get(f"/reports/{env.ids.own}/overview", headers=env.headers).json()["summary"]
+    assert summary == saved["summary"]
+
+
+def test_feedback_tab_falls_back_when_not_saved(env):
+    env.start()
+    report_id, job = env.jobs.pop(0)
+    worker.run_job(report_id, job, lambda p, s: make_result(), lambda: Session(env.engine, expire_on_commit=False),
+                   lambda result: (_ for _ in ()).throw(RuntimeError("feedback bug")))
+    assert env.c.get(f"/reports/{env.ids.own}", headers=env.headers).json()["status"] == "COMPLETED"
+    items = env.c.get(f"/reports/{env.ids.own}/feedback", headers=env.headers).json()["items"]
+    assert 1 <= len(items) <= 3 and [i["rank"] for i in items] == list(range(1, len(items) + 1))
+    for item in items:
+        assert item["quote"] == TEXT[item["start_idx"]:item["end_idx"] + 1]
+
+
+def test_feedback_tab_requires_completion_and_login(env):
+    env.start()
+    assert error_code(env.c.get(f"/reports/{env.ids.own}/feedback", headers=env.headers)) == "REPORT_NOT_COMPLETED"
+    assert env.c.get(f"/reports/{env.ids.own}/feedback").status_code == 401
+    assert error_code(env.c.get(f"/reports/{env.ids.foreign}/feedback", headers=env.headers)) == "RECORDING_NOT_FOUND"
 
 
 def test_corrupt_stored_result_is_reported_not_crashed(env):

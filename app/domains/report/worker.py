@@ -7,12 +7,14 @@ import logging
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.contracts.analysis_result import AnalysisError, AnalysisResult
 from app.core.database import SessionLocal
 from app.domains.report import service
+from app.domains.report.feedback.service import generate_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,7 @@ ANALYSIS_WORKERS = 1
 
 AnalyzeFn = Callable[[str, str], AnalysisResult]
 SessionFactory = Callable[[], Session]
+FeedbackFn = Callable[[AnalysisResult], dict[str, Any]]
 
 _executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
@@ -45,6 +48,7 @@ def run_job(
     recording: service.AnalysisInput,
     analyze_fn: AnalyzeFn | None = None,
     session_factory: SessionFactory = SessionLocal,
+    feedback_fn: FeedbackFn | None = None,
 ) -> None:
     """리포트 하나를 분석하고 결과나 실패 사유를 저장한다. 어떤 경우에도 예외를 밖으로 내지 않는다."""
     try:
@@ -66,9 +70,18 @@ def run_job(
             logger.error("Unsupported analysis schema version %r for report %s", result.version, report_id)
             result, code = None, service.INTERNAL_FAILURE
 
+        feedback: dict[str, Any] | None = None
+        if result is not None:
+            # DB 세션 밖에서 만든다(Gemini 호출은 최대 15초). 실패해도 분석 결과는 COMPLETED 로 저장하고,
+            # 피드백이 비면 조회할 때 규칙 피드백으로 대신한다.
+            try:
+                feedback = (feedback_fn or generate_feedback)(result)
+            except Exception:
+                logger.exception("Feedback generation crashed for report %s", report_id)
+
         with session_factory() as db:
             if result is not None:
-                service.save_success(db, report_id, result)
+                service.save_success(db, report_id, result, feedback)
             else:
                 service.save_failure(db, report_id, code or service.INTERNAL_FAILURE)
     except Exception:
@@ -83,6 +96,7 @@ def enqueue(
     recording: service.AnalysisInput,
     analyze_fn: AnalyzeFn | None = None,
     session_factory: SessionFactory = SessionLocal,
+    feedback_fn: FeedbackFn | None = None,
 ) -> Future[None]:
     """분석 작업을 대기열에 넣는다. 앞선 작업이 있으면 PENDING 으로 기다린다."""
-    return _get_executor().submit(run_job, report_id, recording, analyze_fn, session_factory)
+    return _get_executor().submit(run_job, report_id, recording, analyze_fn, session_factory, feedback_fn)

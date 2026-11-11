@@ -7,6 +7,7 @@ import unicodedata
 
 from app.contracts.analysis_result import (
     AnalysisResult,
+    Pause,
     SpeedLabel,
     SpokenKind,
     UnclearReason,
@@ -70,16 +71,20 @@ def build_habits(result: AnalysisResult) -> list[HabitCount]:
     return habits[:MAX_HABITS]
 
 
+def is_notable_pause(p: Pause) -> bool:
+    """화면과 피드백에 보여줄 만한 쉼인지. 문장 중간은 400ms, 숨 고를 자리는 700ms·평소의 2배 이상."""
+    if p.expected:
+        return p.duration_ms >= LONG_PAUSE_MIN_MS and p.relative_length >= LONG_PAUSE_MIN_RELATIVE
+    return p.duration_ms >= MID_PAUSE_MIN_MS
+
+
 def build_pauses(result: AnalysisResult) -> list[NotablePause]:
     """BE3의 is_habit(2번 이상 반복돼야 참)과 상관없이, 한 번만 있어도 보여줄 쉼을 고른다."""
-    pauses: list[NotablePause] = []
-    for p in result.pauses:
-        if p.expected:
-            notable = p.duration_ms >= LONG_PAUSE_MIN_MS and p.relative_length >= LONG_PAUSE_MIN_RELATIVE
-        else:
-            notable = p.duration_ms >= MID_PAUSE_MIN_MS
-        if notable:
-            pauses.append(NotablePause(after_idx=p.after_idx, duration_ms=p.duration_ms))
+    pauses = [
+        NotablePause(after_idx=p.after_idx, duration_ms=p.duration_ms)
+        for p in result.pauses
+        if is_notable_pause(p)
+    ]
     return sorted(pauses, key=lambda p: p.after_idx)
 
 

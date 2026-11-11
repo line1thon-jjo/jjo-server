@@ -17,11 +17,13 @@ from app.domains.auth.router import AuthError, AuthRoute, get_current_user
 from app.domains.practice.service import get_recording_for_analysis
 from app.domains.report import service, transform, worker
 from app.domains.report.audio import AUDIO_URL_TTL_SECONDS, issue_audio_token, verify_audio_token
+from app.domains.report.feedback.service import load_feedback
 from app.domains.report.models import Report, ReportStatus
 from app.domains.report.schemas import (
     AudioUrlResponse,
     Failure,
-    OverviewStats,
+    FeedbackResponse,
+    Overview,
     ReportStatusResponse,
     StartAnalysisRequest,
     UtteranceAnalysis,
@@ -55,14 +57,14 @@ def _view(db: Session, user: User, recording_id: int) -> service.ReportView:
         raise AuthError(404, "RECORDING_NOT_FOUND") from None
 
 
-def _completed_result(db: Session, user: User, recording_id: int) -> AnalysisResult:
+def _completed(db: Session, user: User, recording_id: int) -> tuple[Report, AnalysisResult]:
     report: Report | None = _view(db, user, recording_id).report
     if report is None:
         raise AuthError(404, "REPORT_NOT_FOUND")
     if report.status != ReportStatus.COMPLETED or not report.analysis_result:
         raise AuthError(409, "REPORT_NOT_COMPLETED")
     try:
-        return AnalysisResult.model_validate(report.analysis_result)
+        return report, AnalysisResult.model_validate(report.analysis_result)
     except ValidationError:
         raise AuthError(500, "REPORT_DATA_INVALID") from None
 
@@ -92,13 +94,16 @@ def status(
     return _status_response(_view(db, user, recording_id))
 
 
-@router.get("/{recording_id}/overview", response_model=OverviewStats)
+@router.get("/{recording_id}/overview", response_model=Overview)
 def overview(
     recording_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> OverviewStats:
-    return transform.build_overview_stats(_completed_result(db, user, recording_id))
+) -> Overview:
+    report, result = _completed(db, user, recording_id)
+    stats = transform.build_overview_stats(result)
+    summary = load_feedback(report.feedback, result).summary
+    return Overview(summary=summary, speed=stats.speed, habits=stats.habits)
 
 
 @router.get("/{recording_id}/utterance", response_model=UtteranceAnalysis, response_model_exclude_none=True)
@@ -107,7 +112,19 @@ def utterance(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UtteranceAnalysis:
-    return transform.build_utterance(_completed_result(db, user, recording_id))
+    _, result = _completed(db, user, recording_id)
+    return transform.build_utterance(result)
+
+
+@router.get("/{recording_id}/feedback", response_model=FeedbackResponse)
+def feedback(
+    recording_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FeedbackResponse:
+    """AI 피드백 탭. 항목은 0~3개이고 배열 순서가 순위(rank)와 같다."""
+    report, result = _completed(db, user, recording_id)
+    return FeedbackResponse(items=load_feedback(report.feedback, result).items)
 
 
 @router.get("/{recording_id}/audio-url", response_model=AudioUrlResponse)
