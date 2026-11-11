@@ -1,0 +1,43 @@
+# PR 마다 테스트, main 에 머지되면 테스트 통과 후 배포 서버에 자동 배포.
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Actions 화면에서 수동으로 다시 배포할 때
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: 패키지 설치
+        run: pip install -e ".[dev]"
+      - name: 테스트
+        run: pytest -q
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy  # 배포가 겹치지 않게 하나씩
+      cancel-in-progress: false
+    steps:
+      - name: 배포 서버에서 scripts/deploy.sh 실행
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # 서버의 authorized_keys 가 이 키로는 deploy.sh 만 실행하게 막아 두었다
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes ubuntu@"$DEPLOY_HOST"
