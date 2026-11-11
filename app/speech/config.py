@@ -31,8 +31,16 @@ class SpeechConfig:
 
     pitch_floor_hz: float = 60.0
     pitch_ceiling_hz: float = 500.0
+    pitch_floor_ratio: float = 0.75  # 2차 음높이 추적 범위: 아래쪽 = 평소(25%) 음높이의 이 배수
+    pitch_ceiling_ratio: float = 2.5  # 위쪽 = 평소(75%) 음높이의 이 배수
     min_voiced_frames: int = 3
-    pitch_level_edges_st: tuple[float, ...] = (-4.0, -2.0, -0.7, 0.7, 2.0, 4.0)
+    # 1~7단계 경계(반음). 화면(BE2)은 1·2·6·7단계, 즉 본인 평균에서 ±4반음 이상 벗어난 글자만 표시한다.
+    # 2반음은 평소 억양의 흔들림이라 글자의 절반 가까이가 표시되어, 4반음(약 14%)으로 정했다.
+    pitch_level_edges_st: tuple[float, ...] = (-6.0, -4.0, -1.0, 1.0, 4.0, 6.0)
+    # 문장 끝 글자는 억양이 자연스럽게 내려가거나 올라가서 '낮음/높음' 표시 대상에서 뺀다(측정값 pitchSt 는 그대로 둔다).
+    pitch_mark_sentence_end: bool = False
+    # 문장 중간의 '낮음' 표시는 실제 청취와 맞는 비율이 낮아(1/6) 검증 전까지 끈다. 높음 표시는 유지한다.
+    pitch_mark_low: bool = False
 
     low_volume_db: float = 14.0
     low_volume_is_unclear: bool = False  # 작은 소리만으로는 '불분명'으로 보지 않는다 (말끝 작아짐 습관과 syllable.lowVolume 으로 따로 본다)
@@ -76,6 +84,8 @@ class SpeechConfig:
     deviation_min_syllables: int = 3
     deviation_min_prob: float = 0.8
     deviation_min_word_prob: float = 0.5
+    # 길게(5음절 이상) 다른 말로 인식된 구간은 한 단어가 잘못 들려도(예: 바로 뒤 단어를 엉뚱하게 인식) 통째로 버리지 않는다
+    deviation_long_min_word_prob: float = 0.4
 
     end_rise_st: float = 3.0
     end_rise_min_pitched: int = 4

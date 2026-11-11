@@ -48,7 +48,8 @@ def build_spoken_text(
         # 짧은 차이는 확신이 높아야 채택한다. 길게(5음절 이상) 다른 말로 인식되면 우연한 오인식일 가능성이 낮아 기준을 조금 낮춘다
         strong = len(part) >= cfg.deviation_min_syllables and mean_prob >= cfg.deviation_min_prob
         long_enough = len(part) >= cfg.deviation_long_syllables and mean_prob >= cfg.deviation_long_prob
-        if not (strong or long_enough) or min(probs) < cfg.deviation_min_word_prob:
+        min_word = cfg.deviation_long_min_word_prob if len(part) >= cfg.deviation_long_syllables else cfg.deviation_min_word_prob
+        if not (strong or long_enough) or min(probs) < min_word:
             continue
 
         if a_hi > a_lo:

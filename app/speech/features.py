@@ -168,13 +168,23 @@ def pitch_track(y: np.ndarray, cfg: SpeechConfig, n_frames: int) -> np.ndarray:
         ) from e
 
     snd = parselmouth.Sound(y.astype(np.float64), sampling_frequency=float(cfg.sample_rate))
-    pitch = snd.to_pitch(
-        time_step=cfg.hop_ms / 1000,
-        pitch_floor=cfg.pitch_floor_hz,
-        pitch_ceiling=cfg.pitch_ceiling_hz,
-    )
-    freq = pitch.selected_array["frequency"].astype(np.float64)
-    freq[freq <= 0] = np.nan
+
+    def track(floor: float, ceiling: float):
+        p = snd.to_pitch(time_step=cfg.hop_ms / 1000, pitch_floor=floor, pitch_ceiling=ceiling)
+        f = p.selected_array["frequency"].astype(np.float64)
+        f[f <= 0] = np.nan
+        return p, f
+
+    # 1차: 넓은 범위로 이 사람의 평소 음높이를 알아내고, 2차: 그 범위로 좁혀서 다시 잰다.
+    # 사람마다 목소리 높이가 달라서 고정 범위로 한 번만 재면 한 옥타브씩 튀는 오류가 난다.
+    pitch, freq = track(cfg.pitch_floor_hz, cfg.pitch_ceiling_hz)
+    voiced = freq[~np.isnan(freq)]
+    if len(voiced) >= 20:
+        q25, q75 = np.percentile(voiced, [25, 75])
+        floor = max(cfg.pitch_floor_hz, cfg.pitch_floor_ratio * q25)
+        ceiling = min(cfg.pitch_ceiling_hz, cfg.pitch_ceiling_ratio * q75)
+        if ceiling > floor * 1.5:
+            pitch, freq = track(floor, ceiling)
     times = pitch.xs()
 
     f0 = np.full(n_frames, np.nan)
@@ -212,6 +222,13 @@ def apply_pitch(sylls: list[Syl], f0: np.ndarray, cfg: SpeechConfig) -> float | 
         st = 12 * np.log2(s.pitch_hz / median_hz)
         s.pitch_st = float(st)
         s.pitch_level = bisect_right(edges, st) + 1
+        # 표시 대상(양 끝 단계)에서 뺄 글자는 한 칸 안쪽(3 또는 5단계)으로 내린다. 방향은 유지된다.
+        marked = s.pitch_level <= 2 or s.pitch_level >= len(edges)
+        if marked and (
+            (s.unit.is_sentence_end and not cfg.pitch_mark_sentence_end)
+            or (s.pitch_level <= 2 and not cfg.pitch_mark_low)
+        ):
+            s.pitch_level = 3 if s.pitch_level <= 2 else len(edges) - 1
     return median_hz
 
 
