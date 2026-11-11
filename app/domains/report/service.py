@@ -13,12 +13,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.contracts.analysis_result import SCHEMA_VERSION, AnalysisResult, ErrorCode
-from app.domains.practice.service import RecordingNotFoundError, get_practice, get_recording_for_analysis
+from app.domains.practice.service import (
+    RecordingNotFoundError, get_practice, get_recording_for_analysis, list_recordings,
+)
 from app.domains.report.models import Report, ReportStatus
 
 __all__ = [
-    "AnalysisInput", "StartResult", "ReportView", "RecordingNotFoundError", "start_analysis", "get_report",
-    "get_report_view",
+    "AnalysisInput", "StartResult", "ReportView", "AttemptView", "RecordingNotFoundError", "start_analysis",
+    "get_report", "get_report_view", "list_attempts",
     "claim_for_analysis", "save_success", "save_failure", "is_supported_version", "clear_active",
     "is_active",
 ]
@@ -131,6 +133,14 @@ class ReportView(NamedTuple):
     report: Report | None  # 아직 분석을 시작하지 않았으면 None
     recording: AnalysisInput
     practice_title: str
+    recorded_at: datetime
+
+
+class AttemptView(NamedTuple):
+    recording_id: int
+    attempt_no: int
+    recorded_at: datetime
+    status: ReportStatus | None  # 아직 분석을 시작하지 않았으면 None
 
 
 def get_report(db: Session, *, user_id: int, recording_id: int) -> Report | None:
@@ -144,7 +154,33 @@ def get_report_view(db: Session, *, user_id: int, recording_id: int) -> ReportVi
     recording = get_recording_for_analysis(db, recording_id=recording_id, user_id=user_id)
     report = _report_for(db, recording)
     practice = get_practice(db, user_id=user_id, practice_id=recording.practice_id)
-    return ReportView(report=report, recording=recording, practice_title=practice.title if practice else "")
+    items = list_recordings(db, user_id=user_id, practice_id=recording.practice_id) or []
+    recorded_at = next((i.created_at for i in items if i.recording_id == recording.recording_id), None)
+    if recorded_at is None:  # 위에서 본인 녹음임을 확인했으므로 정상이라면 일어나지 않는다
+        raise RecordingNotFoundError()
+    return ReportView(
+        report=report, recording=recording, practice_title=practice.title if practice else "", recorded_at=recorded_at,
+    )
+
+
+def list_attempts(db: Session, *, user_id: int, practice_id: int) -> list[AttemptView] | None:
+    """연습의 회차 목록과 회차별 분석 상태. 연습이 없거나 타인 소유면 None."""
+    items = list_recordings(db, user_id=user_id, practice_id=practice_id)
+    if items is None:
+        return None
+    reports = list(db.scalars(  # 끊긴 작업 정리에서 commit 하므로 먼저 다 읽는다
+        select(Report)
+        .where(Report.recording_id.in_([i.recording_id for i in items]))
+        .execution_options(populate_existing=True)
+    ))
+    by_recording = {r.recording_id: _settle_interrupted(db, r) for r in reports}
+    return [
+        AttemptView(
+            recording_id=i.recording_id, attempt_no=i.attempt_no, recorded_at=i.created_at,
+            status=by_recording[i.recording_id].status if i.recording_id in by_recording else None,
+        )
+        for i in items
+    ]
 
 
 def _report_for(db: Session, recording: AnalysisInput) -> Report | None:
@@ -152,11 +188,11 @@ def _report_for(db: Session, recording: AnalysisInput) -> Report | None:
     FAILED(INTERNAL)로 정리해서 화면이 영원히 "분석 중"에 머물지 않게 한다.
     """
     report = _find_report(db, recording.recording_id)
-    if (
-        report is not None
-        and report.status in (ReportStatus.PENDING, ReportStatus.ANALYZING)
-        and not is_active(report.id)
-    ):
+    return _settle_interrupted(db, report) if report is not None else None
+
+
+def _settle_interrupted(db: Session, report: Report) -> Report:
+    if report.status in (ReportStatus.PENDING, ReportStatus.ANALYZING) and not is_active(report.id):
         logger.warning("Marking interrupted report %s as failed", report.id)
         db.execute(
             update(Report)

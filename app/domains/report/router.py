@@ -1,4 +1,4 @@
-"""report 도메인 라우터 (BE2 담당): 분석 시작·상태, 탭별 결과, 녹음 재생 주소.
+"""report 도메인 라우터 (BE2 담당): 회차 목록, 분석 시작·상태, 탭별 결과, 녹음 재생 주소.
 
 리포트는 녹음 하나당 하나라서 경로의 {recording_id} 로 접근한다. 에러 응답 형식은 auth·practice 와 같다.
 """
@@ -20,6 +20,8 @@ from app.domains.report.audio import AUDIO_URL_TTL_SECONDS, issue_audio_token, v
 from app.domains.report.feedback.service import load_feedback
 from app.domains.report.models import Report, ReportStatus
 from app.domains.report.schemas import (
+    Attempt,
+    AttemptsResponse,
     AudioUrlResponse,
     Failure,
     FeedbackResponse,
@@ -45,7 +47,7 @@ def _status_response(view: service.ReportView) -> ReportStatusResponse:
         warnings = [w for w in report.analysis_result.get("warnings", []) if w in KNOWN_WARNINGS]
     return ReportStatusResponse(
         recording_id=recording.recording_id, status=report.status, practice_title=view.practice_title,
-        attempt_no=recording.attempt_no, duration_ms=recording.duration_ms,
+        recorded_at=view.recorded_at, attempt_no=recording.attempt_no, duration_ms=recording.duration_ms,
         failure=failure, warnings=warnings,
     )
 
@@ -67,6 +69,19 @@ def _completed(db: Session, user: User, recording_id: int) -> tuple[Report, Anal
         return report, AnalysisResult.model_validate(report.analysis_result)
     except ValidationError:
         raise AuthError(500, "REPORT_DATA_INVALID") from None
+
+
+@router.get("/practices/{practice_id}/attempts", response_model=AttemptsResponse)
+def attempts(
+    practice_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AttemptsResponse:
+    """회차 선택 목록. 분석을 시작하지 않은 회차도 status=null 로 나온다."""
+    items = service.list_attempts(db, user_id=user.id, practice_id=practice_id)
+    if items is None:
+        raise AuthError(404, "PRACTICE_NOT_FOUND")
+    return AttemptsResponse(attempts=[Attempt(**item._asdict()) for item in items])
 
 
 @router.post("", status_code=202, response_model=ReportStatusResponse, response_model_exclude_none=True)

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.storage import RecordingStorage
 from app.domains.practice.models import Practice, Recording
-from app.domains.practice.schemas import PracticeCreate, RecordingAnalysisInput, RecordingResponse
+from app.domains.practice.schemas import PracticeCreate, RecordingAnalysisInput, RecordingListItem, RecordingResponse
 from app.domains.practice.title import generate_title
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,19 @@ def get_recording_for_analysis(
         attempt_no=recording.attempt_no, script_snapshot=recording.script_snapshot,
         audio_path=recording.audio_path, duration_ms=recording.duration_ms,
     )
+
+
+def list_recordings(db: Session, *, user_id: int, practice_id: int) -> list[RecordingListItem] | None:
+    """BE2용. 연습의 녹음을 회차 순으로 반환한다. 연습이 없거나 타인 소유면 None. DB 쓰기는 없다."""
+    if get_practice(db, user_id=user_id, practice_id=practice_id) is None:
+        return None
+    recordings = db.scalars(
+        select(Recording).where(Recording.practice_id == practice_id).order_by(Recording.attempt_no)
+    )
+    return [
+        RecordingListItem(recording_id=r.id, attempt_no=r.attempt_no, created_at=r.created_at)
+        for r in recordings
+    ]
 
 
 def upload_recording(

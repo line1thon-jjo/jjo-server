@@ -1,4 +1,6 @@
 """report 라우터: 실제 로그인 토큰과 테스트 DB로 HTTP 흐름을 확인한다."""
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import JSON, Integer, MetaData
 from sqlalchemy.orm import Session
@@ -53,7 +55,7 @@ def env(client, tmp_path, monkeypatch):  # noqa: F811
                             audio_path=str(audio_file), duration_ms=3000)
         db.add_all([own, foreign])
         db.commit()
-        ids = SimpleIds(own=own.id, foreign=foreign.id)
+        ids = SimpleIds(own=own.id, foreign=foreign.id, practice=mine.id, foreign_practice=theirs.id)
 
     jobs = []
     monkeypatch.setattr(routes.worker, "enqueue", lambda report_id, job, *a, **k: jobs.append((report_id, job)))
@@ -62,8 +64,9 @@ def env(client, tmp_path, monkeypatch):  # noqa: F811
 
 
 class SimpleIds:
-    def __init__(self, own, foreign):
+    def __init__(self, own, foreign, practice, foreign_practice):
         self.own, self.foreign = own, foreign
+        self.practice, self.foreign_practice = practice, foreign_practice
 
 
 class SimpleEnv:
@@ -121,7 +124,9 @@ def test_endpoints_require_login(env):
 def test_start_returns_pending_with_header_and_enqueues_once(env):
     response = env.start()
     assert response.status_code == 202, response.text
-    assert response.json() == {
+    body = response.json()
+    assert body.pop("recorded_at").startswith(str(datetime.now(timezone.utc).year))  # 녹음 저장 시각
+    assert body == {
         "recording_id": env.ids.own, "status": "PENDING", "practice_title": "중문이 기말 발표",
         "attempt_no": 2, "duration_ms": 3000, "warnings": [],
     }
@@ -291,3 +296,44 @@ def test_audio_missing_file_is_404(env):
     env.audio_file.unlink()
     response = env.c.get(url)
     assert response.status_code == 404 and error_code(response) == "AUDIO_FILE_NOT_FOUND"
+
+
+# ---- 회차 목록 ----
+
+def add_recording(env, attempt_no):
+    with Session(env.engine, expire_on_commit=False) as db:
+        rec = Recording(practice_id=env.ids.practice, attempt_no=attempt_no, script_snapshot=TEXT,
+                        audio_path=str(env.audio_file), duration_ms=3000)
+        db.add(rec)
+        db.commit()
+        return rec.id
+
+
+def attempts(env, practice_id=None):
+    return env.c.get(f"/reports/practices/{practice_id or env.ids.practice}/attempts", headers=env.headers)
+
+
+def test_attempts_list_in_order_with_status_or_null(env):
+    first = add_recording(env, 1)  # 기존 녹음(2회차)보다 먼저인 회차
+    third = add_recording(env, 3)
+    assert env.start().status_code == 202  # 2회차만 분석 시작
+    response = attempts(env)
+    assert response.status_code == 200, response.text
+    rows = response.json()["attempts"]
+    assert [(r["recording_id"], r["attempt_no"], r["status"]) for r in rows] == [
+        (first, 1, None), (env.ids.own, 2, "PENDING"), (third, 3, None),
+    ]
+    assert all(r["recorded_at"] for r in rows)
+    assert set(rows[0]) == {"recording_id", "attempt_no", "recorded_at", "status"}  # null 도 키는 내려준다
+
+
+def test_attempts_show_interrupted_analysis_as_failed(env):
+    env.start()
+    service._ACTIVE.clear()  # 서버가 다시 시작돼 작업 기록이 사라진 상황
+    assert attempts(env).json()["attempts"][0]["status"] == "FAILED"
+
+
+def test_attempts_reject_foreign_unknown_and_anonymous(env):
+    assert error_code(attempts(env, env.ids.foreign_practice)) == "PRACTICE_NOT_FOUND"
+    assert error_code(attempts(env, 999999)) == "PRACTICE_NOT_FOUND"
+    assert env.c.get(f"/reports/practices/{env.ids.practice}/attempts").status_code == 401
