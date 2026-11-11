@@ -112,3 +112,51 @@ class UtteranceAnalysis(BaseModel):
     replaced: list[Replaced]
     added: list[Added]
     skipped: list[Skipped]
+
+
+FeedbackKind = Literal[
+    "END_RISE", "END_STRETCH", "END_FADE", "MID_STRETCH", "MID_PAUSE", "LONG_PAUSE", "NO_BREAK", "PACE", "PAUSE",
+]
+
+
+class FeedbackSummary(BaseModel):
+    """총평. headline 20자, footer 30자 이내."""
+
+    headline: str
+    footer: str
+
+
+class FeedbackItem(BaseModel):
+    rank: int  # 1부터. 1번이 우선 연습
+    title: str  # 20자 이내
+    quote: str  # 40자 이내, spoken_text[start_idx:end_idx+1] 과 같다(줄바꿈은 공백)
+    body: str  # 90자 이내
+    start_ms: int
+    end_ms: int
+    start_idx: int
+    end_idx: int
+    kind: FeedbackKind
+
+
+class FeedbackResponse(BaseModel):
+    """AI 피드백 탭."""
+
+    items: list[FeedbackItem]
+
+
+class Overview(BaseModel):
+    """전체 결과 탭."""
+
+    summary: FeedbackSummary
+    speed: SpeedCounts
+    habits: list[HabitCount]
+
+
+class StoredFeedback(BaseModel):
+    """reports.feedback JSONB 에 저장하는 형태. source·model 은 내부 기록용이라 API 로 내리지 않는다."""
+
+    version: Literal[1] = 1
+    source: Literal["gemini", "rule", "mixed"]
+    model: str | None = None
+    summary: FeedbackSummary
+    items: list[FeedbackItem]

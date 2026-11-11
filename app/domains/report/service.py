@@ -6,7 +6,7 @@
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -184,14 +184,17 @@ def is_supported_version(result: AnalysisResult) -> bool:
     return result.version.split(".")[0] == SCHEMA_VERSION.split(".")[0]
 
 
-def save_success(db: Session, report_id: int, result: AnalysisResult) -> bool:
-    """분석 결과를 저장하고 COMPLETED 로 바꾼다. 그 사이 리포트가 삭제됐으면 False."""
+def save_success(
+    db: Session, report_id: int, result: AnalysisResult, feedback: dict[str, Any] | None = None,
+) -> bool:
+    """분석 결과와 피드백을 저장하고 COMPLETED 로 바꾼다. 그 사이 리포트가 삭제됐으면 False."""
     outcome = db.execute(
         update(Report)
         .where(Report.id == report_id, Report.status == ReportStatus.ANALYZING)
         .values(
             status=ReportStatus.COMPLETED,
             analysis_result=result.to_json_dict(),
+            feedback=feedback,
             schema_version=result.version,
             failure_reason=None,
             completed_at=datetime.now(timezone.utc),

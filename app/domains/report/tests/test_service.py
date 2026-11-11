@@ -122,6 +122,42 @@ def test_run_job_success_saves_raw_result(engine, db, factory):
     assert not service.is_active(report.id)
 
 
+def test_run_job_saves_feedback_with_result(engine, db, factory):
+    report, job = start(db)
+    worker.run_job(report.id, job, lambda p, s: make_result(), factory, lambda result: {"marker": True})
+    saved = reload(engine)
+    assert saved.status == ReportStatus.COMPLETED and saved.feedback == {"marker": True}
+
+
+def test_run_job_default_feedback_is_rule_based_without_key(engine, db, factory):
+    report, job = start(db)
+    worker.run_job(report.id, job, lambda p, s: make_result(), factory)
+    saved = reload(engine)
+    assert saved.feedback["source"] == "rule" and saved.feedback["summary"]["headline"]
+
+
+def test_run_job_feedback_crash_still_completes(engine, db, factory):
+    report, job = start(db)
+
+    def broken(result):
+        raise RuntimeError("bug")
+
+    worker.run_job(report.id, job, lambda p, s: make_result(), factory, broken)
+    saved = reload(engine)
+    assert saved.status == ReportStatus.COMPLETED and saved.feedback is None
+
+
+def test_run_job_skips_feedback_when_analysis_fails(engine, db, factory):
+    report, job = start(db)
+    calls = []
+
+    def fail(path, script):
+        raise AnalysisError(ErrorCode.NO_SPEECH, "none")
+
+    worker.run_job(report.id, job, fail, factory, lambda result: calls.append(1) or {})
+    assert calls == [] and reload(engine).feedback is None
+
+
 def test_run_job_analysis_error_saves_code(engine, db, factory):
     report, job = start(db)
 
