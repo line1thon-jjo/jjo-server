@@ -12,6 +12,18 @@ from app.contracts.analysis_result import HabitType
 from app.domains.report.models import ReportStatus
 
 
+class ErrorBody(BaseModel):
+    code: str
+    message: str  # 화면에 그대로 쓰지 않는다. 문구는 code 로 정한다
+    fields: list[str] = []
+
+
+class ErrorResponse(BaseModel):
+    """auth·practice·report 공통 오류 응답 형식 (Swagger 표시용)."""
+
+    error: ErrorBody
+
+
 class StartAnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
