@@ -14,6 +14,10 @@ dependencies = [
     "google-auth[requests]>=2.0",
     "PyJWT>=2.10,<3",
     "python-multipart>=0.0.20,<0.1",
+    # 음성 분석 엔진(app/speech). 녹음 디코딩에 ffmpeg 가 PATH 에 있어야 한다
+    "numpy>=1.26",
+    "praat-parselmouth>=0.4.5",
+    "faster-whisper>=1.0.3",
 ]
 
 [project.optional-dependencies]
