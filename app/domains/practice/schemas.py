@@ -52,6 +52,16 @@ class RecordingErrorResponse(BaseModel):
     error: RecordingErrorDetail
 
 
+class RecordingListItem(BaseModel):
+    """BE2용. 연습의 녹음(회차) 목록 한 줄. created_at 은 서버가 녹음을 저장한 시각."""
+
+    model_config = ConfigDict(frozen=True)
+
+    recording_id: int
+    attempt_no: int
+    created_at: datetime
+
+
 class RecordingAnalysisInput(BaseModel):
     """BE2 계약 초안. audio_path는 내부 경로, duration_ms는 클라이언트 값.
 

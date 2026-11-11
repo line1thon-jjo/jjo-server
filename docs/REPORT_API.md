@@ -51,19 +51,20 @@ status가 PENDING 또는 ANALYZING이면 프론트가 일정 간격(권장 3초)
 | 필드 | 값 | 예시 | 화면 표시 |
 | --- | --- | --- | --- |
 | practice_title | 문자열 | "중문이 기말 발표" | 시안: 상단 작은 글씨 "연습 제목 · 시각" |
-| recorded_at | 날짜·시각 | 2026-11-09T12:37 | 시안: 위 줄의 "오늘 12:37" |
+| recorded_at | 날짜·시각 (ISO 8601, 시간대 포함) | 2026-11-09T03:37:00Z | 시안: 위 줄의 "오늘 12:37". UTC 기준이니 한국 시간으로 바꿔 표시 |
 | attempt_no | 1 이상의 정수 | 2 | 시안: "두번째 연습 결과" 큰 제목 |
 | duration_ms | 정수, 1500 ~ 600000 | 68000 | 시안: 하단 재생바의 전체 길이 "01:08" |
 
-회차 선택 목록 (연습 데이터, BE1이 제공):
+회차 선택 목록 (`GET /reports/practices/{practice_id}/attempts`, 회차 번호 오름차순):
 
 | 필드 | 값 | 설명 |
 | --- | --- | --- |
+| attempts[].recording_id | 정수 | 그 회차 녹음의 ID. 리포트 조회 주소에 쓴다 |
 | attempts[].attempt_no | 1 이상의 정수 | 회차 번호 |
-| attempts[].recorded_at | 날짜·시각 | 녹음 시각 |
-| attempts[].status | PENDING / ANALYZING / COMPLETED / FAILED | 그 회차의 분석 상태. 분석 중이거나 실패한 회차도 목록에는 나옴 |
+| attempts[].recorded_at | 날짜·시각 (ISO 8601, 시간대 포함) | 녹음 시각. 예: 2026-11-09T03:37:00Z. UTC 기준이니 한국 시간으로 바꿔 표시 |
+| attempts[].status | PENDING / ANALYZING / COMPLETED / FAILED / null | 그 회차의 분석 상태. 분석 중이거나 실패한 회차도 목록에는 나옴. 아직 분석을 시작하지 않은 회차는 null |
 
-- 사용자가 회차를 고르면 그 회차의 리포트(아래 2~4번 전부)를 새로 조회
+- 사용자가 회차를 고르면 그 회차의 recording_id 로 리포트(아래 2~4번 전부)를 새로 조회
 - 선택하지 않았을 때의 기본값은 가장 최근 회차
 
 ## 2. 전체 결과 탭

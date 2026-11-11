@@ -3,6 +3,7 @@
 값이 없는 필드는 내려가지 않아야 하므로(예: 평범한 글자의 pitch) 라우터에서
 response_model_exclude_none=True 로 직렬화한다. 필드 설명은 docs/REPORT_API.md 참고.
 """
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -27,10 +28,24 @@ class ReportStatusResponse(BaseModel):
     recording_id: int
     status: ReportStatus
     practice_title: str
+    recorded_at: datetime
     attempt_no: int
     duration_ms: int
     failure: Failure | None = None
     warnings: list[str] = []
+
+
+class Attempt(BaseModel):
+    """회차 선택 목록의 한 줄. status 는 아직 분석을 시작하지 않은 회차면 null."""
+
+    recording_id: int
+    attempt_no: int
+    recorded_at: datetime
+    status: ReportStatus | None
+
+
+class AttemptsResponse(BaseModel):
+    attempts: list[Attempt]  # 회차 번호 오름차순
 
 
 class AudioUrlResponse(BaseModel):
