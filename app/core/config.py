@@ -22,5 +22,12 @@ class Settings(BaseSettings):
     # 서버 시작 때 음성 분석 모델(Whisper)을 미리 올린다. 첫 실행은 모델을 내려받아 오래 걸린다. 테스트에서는 끈다.
     speech_warm_up: bool = True
 
+    # 브라우저에서 API 를 부를 수 있는 프론트 주소(CORS). .env 에서는 JSON 목록으로 쓴다.
+    cors_origins: list[str] = [
+        "https://jjo-beta.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
+
 
 settings = Settings()

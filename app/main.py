@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.domains.auth.router import router as auth_router
@@ -33,6 +34,15 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="jjo", lifespan=lifespan)
+
+# 로그인은 쿠키가 아니라 Authorization 헤더라서 credentials 는 쓰지 않는다.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type", "Range"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
+)
 
 app.include_router(auth_router)
 app.include_router(practice_router)
