@@ -33,7 +33,25 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="jjo", lifespan=lifespan)
+API_DESCRIPTION = """
+발표 대본을 녹음하면 말하기 습관(쪼)을 분석해 대본 위 글자 모양으로 보여주는 AI 발표 코칭 서비스 jjo 의 API.
+
+- **로그인:** 오른쪽 위 **Authorize** 에 access_token 을 넣으면 자물쇠가 있는 API 를 직접 호출해 볼 수 있다.
+- **오류 형식:** `{"error": {"code": "...", "message": "...", "fields": [...]}}`. 화면 문구는 `message` 가 아니라 `code` 로 정한다.
+- **분석 리포트(report):** 필드 의미와 화면 흐름은 레포의 `docs/REPORT_API.md` 를 함께 본다.
+"""
+
+app = FastAPI(
+    title="jjo API",
+    version="1.0.0",
+    description=API_DESCRIPTION,
+    lifespan=lifespan,
+    openapi_tags=[
+        {"name": "auth", "description": "구글 로그인, 약관 동의, 온보딩"},
+        {"name": "practice", "description": "연습(대본) 생성·조회, 녹음 업로드"},
+        {"name": "report", "description": "분석 시작·상태, 결과 탭(전체 결과·발화 분석·AI 피드백), 녹음 재생"},
+    ],
+)
 
 # 로그인은 쿠키가 아니라 Authorization 헤더라서 credentials 는 쓰지 않는다.
 app.add_middleware(
