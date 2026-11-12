@@ -18,6 +18,14 @@ FILLERS = frozenset(
 )
 
 
+_FILLER_SOUNDS = frozenset("어음으아엄흠")
+
+
+def is_filler_sound(text: str) -> bool:
+    """'어음', '음어', '어어음' 처럼 군말 소리만 이어 붙은 말도 군말로 본다(Whisper 가 '어… 음…' 을 한 덩어리로 적는 경우)."""
+    return bool(text) and all(c in _FILLER_SOUNDS for c in text)
+
+
 def find_insertions(units: list[Unit], words: list[WordTiming], cfg: SpeechConfig) -> list[Disfluency]:
     if not words:
         return []
@@ -34,7 +42,7 @@ def find_insertions(units: list[Unit], words: list[WordTiming], cfg: SpeechConfi
         text = "".join(r[0] for r in extra)
         before = "".join(a_chars[max(0, nxt.a - len(text)) : nxt.a])
         after = "".join(a_chars[nxt.a : nxt.a + len(text)])
-        if text in FILLERS:
+        if text in FILLERS or is_filler_sound(text):
             kind = DisfluencyType.FILLER
         elif before == text or after.startswith(text):
             kind = DisfluencyType.REPEAT

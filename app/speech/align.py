@@ -463,7 +463,7 @@ class PrecomputedWordsAligner:
 class WhisperAligner:
     def __init__(
         self,
-        model_size: str = "small",
+        model_size: str = "medium",
         device: str = "auto",
         compute_type: str = "int8",
         use_script_prompt: bool = False,

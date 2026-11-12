@@ -46,9 +46,20 @@ def detect_habits(sylls: list[Syl], pauses: list[Pause], cfg: SpeechConfig) -> l
                 if last.pitch_st - float(np.median(head)) >= cfg.end_rise_st:
                     add(HabitType.END_RISE, last.unit.idx)
 
+    # 어절 끝에서 늘이는 습관. 어절 안의 여러 글자에 걸쳐 늘이면("하는데"를 '하아느은데'처럼) 시간이 나뉘어
+    # 마지막 글자만으로는 길이가 모자라 보이므로, 어절 안에서 늘어난 마지막 글자를 표시한다.
+    word: list[Syl] = []
     for s in sylls:
-        if s.stretch and not s.unit.is_sentence_end and s.unit.boundary_after != B_NONE:
-            add(HabitType.MID_STRETCH, s.unit.idx)
+        if not s.unit.is_hangul:
+            continue
+        word.append(s)
+        if s.unit.boundary_after == B_NONE:
+            continue
+        stretched = [w for w in word if w.stretch]
+        # 마지막 글자가 늘어났거나, 어절 안에서 두 글자 이상 늘어난 경우만 센다(한 글자만 길어진 것은 발음 길이 차이일 수 있다)
+        if (s.stretch or len(stretched) >= 2) and not s.unit.is_sentence_end and not any(w.unit.is_sentence_end for w in word):
+            add(HabitType.MID_STRETCH, stretched[-1].unit.idx)
+        word = []
 
     hang = [s for s in sylls if s.unit.is_hangul]
     for a, b in zip(hang, hang[1:]):
