@@ -26,7 +26,9 @@ from app.domains.report.schemas import (
     UtteranceAnalysis,
 )
 
-MARK_PITCH_LEVELS = frozenset({1, 2, 6, 7})  # 본인 평균보다 2반음 이상 낮거나 높은 글자
+# 본인 평균보다 4반음 이상 낮거나 높은 글자. 낮음(1·2)은 BE3 설정(pitch_mark_low=False)으로 일부러 꺼 두어
+# 현재는 높음(6·7)만 온다. 실제로 들었을 때 맞는 비율이 낮아(1/6) 검증 전까지 끈 것이라 여기서는 그대로 둔다.
+MARK_PITCH_LEVELS = frozenset({1, 2, 6, 7})
 MID_PAUSE_MIN_MS = 400  # 문장 중간에서 표시할 최소 쉼
 LONG_PAUSE_MIN_MS = 700  # 숨 고를 자리에서 표시할 최소 쉼
 LONG_PAUSE_MIN_RELATIVE = 2.0  # 숨 고를 자리에서 평소(본인 중앙값)의 몇 배 이상이어야 하는지
