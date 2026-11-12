@@ -3,6 +3,7 @@ FastAPI·DB 를 모르는 순수 모듈이며, 실패는 AnalysisError 로 알�
 """
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Optional
@@ -16,7 +17,7 @@ from app.contracts.analysis_result import (
     Syllable,
 )
 
-from .align import Aligner, PrecomputedWordsAligner, WhisperAligner
+from .align import Aligner, PrecomputedWordsAligner, WhisperAligner, whisper_settings
 from .audio_io import load_audio
 from .clarity import detect_unclear_ranges
 from .config import DEFAULT_CONFIG, SpeechConfig
@@ -32,6 +33,8 @@ from .features import (
     suppress_blips,
     pitch_track,
 )
+from .ctc import ctc_repeat_disfluencies
+from .ctc import warm_up as ctc_warm_up
 from .habits import detect_habits
 from .numerals import normalize_numerals
 from .spoken import build_spoken_text
@@ -45,12 +48,14 @@ def get_default_aligner() -> WhisperAligner:
     global _default_aligner
     with _lock:
         if _default_aligner is None:
-            _default_aligner = WhisperAligner()
+            model, device, compute = whisper_settings(dict(os.environ))
+            _default_aligner = WhisperAligner(model_size=model, device=device, compute_type=compute)
         return _default_aligner
 
 
 def warm_up() -> None:
     get_default_aligner().warm_up()
+    ctc_warm_up(DEFAULT_CONFIG)  # 보조 기능을 켠 경우에만 모델을 미리 불러온다
 
 
 def _round_or_none(v: Optional[float], nd: int) -> Optional[float]:
@@ -110,7 +115,9 @@ def analyze(
     median_hz = apply_pitch(sylls, f0, cfg)
     apply_volume(sylls, db, cfg)
     apply_stretch(sylls, cfg)
-    disfluencies = merge_disfluencies(find_insertions(units, words, cfg), find_stray_sounds(sylls, db, f0, cfg))
+    by_words = find_insertions(units, words, cfg)
+    by_words = by_words + ctc_repeat_disfluencies(y, script, sylls, by_words, cfg)
+    disfluencies = merge_disfluencies(by_words, find_stray_sounds(sylls, db, f0, cfg))
     pauses, typical_pause_ms = detect_pauses(sylls, cfg, pauses_with_disfluency(sylls, disfluencies, cfg), db)
     phrases, articulation_rate = build_phrases(sylls, cfg)
     habits = detect_habits(sylls, pauses, cfg)

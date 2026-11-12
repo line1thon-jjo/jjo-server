@@ -3,6 +3,7 @@ Aligner 인터페이스와 구현체(WhisperAligner / PrecomputedWordsAligner / 
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
 from types import SimpleNamespace
@@ -17,6 +18,32 @@ from .features import energy_db, ms_to_frame, speech_threshold, suppress_blips
 from .phonetic import sound_distance
 from .text import Unit, is_hangul_syllable
 from .types import Syl
+
+log = logging.getLogger(__name__)
+
+
+def cuda_available() -> bool:
+    """이 컴퓨터에서 GPU(CUDA)를 쓸 수 있는지. 확인에 실패하면 없는 것으로 본다."""
+    try:
+        import ctranslate2
+
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+def whisper_settings(env: dict[str, str]) -> tuple[str, str, str]:
+    """환경변수에서 (모델, 장치, 계산 방식)을 정한다. 아무것도 안 주면 지금까지와 같다(medium, auto, int8).
+    SPEECH_MODEL: 모델 이름(기본 medium) / SPEECH_DEVICE: auto·cpu·cuda(기본 auto) /
+    SPEECH_COMPUTE_TYPE: 직접 지정하지 않으면 GPU 에서는 float16, CPU 에서는 int8.
+    """
+    model = env.get("SPEECH_MODEL", "").strip() or "medium"
+    device = env.get("SPEECH_DEVICE", "").strip().lower() or "auto"
+    compute = env.get("SPEECH_COMPUTE_TYPE", "").strip().lower()
+    if not compute:
+        use_gpu = device == "cuda" or (device == "auto" and cuda_available())
+        compute = "float16" if use_gpu else "int8"
+    return model, device, compute
 
 
 class Aligner(Protocol):
@@ -484,17 +511,38 @@ class WhisperAligner:
                 raise AnalysisError(
                     ErrorCode.ENGINE_UNAVAILABLE, "faster-whisper 가 필요합니다: pip install faster-whisper"
                 ) from e
-            self._model = WhisperModel(self.model_size, device=self.device, compute_type=self.compute_type)
+            try:
+                self._model = WhisperModel(self.model_size, device=self.device, compute_type=self.compute_type)
+            except Exception as e:
+                if self.device == "cpu":
+                    raise
+                log.warning("GPU 로 모델을 불러오지 못해 CPU 로 바꿉니다: %s: %s", type(e).__name__, e)
+                self._use_cpu()
+                self._model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
         return self._model
+
+    def _use_cpu(self) -> None:
+        self.device, self.compute_type, self._model = "cpu", "int8", None
 
     def warm_up(self) -> None:
         self._get_model()
 
     def transcribe_words(self, y: np.ndarray, script: Optional[str] = None) -> list[WordTiming]:
-        model = self._get_model()
         prompt = ("음... 어, 그, 저는 음... 아, 네. " if self.filler_prompt else "") + (
             script if (self.use_script_prompt and script) else ""
         )
+        try:
+            return self._transcribe(y, prompt)
+        except RuntimeError as e:
+            # GPU 라이브러리(cuDNN/cuBLAS)가 없으면 모델은 불러와져도 첫 인식에서 실패한다 → CPU 로 바꿔 한 번 더 시도
+            if self.device == "cpu":
+                raise
+            log.warning("GPU 로 인식하지 못해 CPU 로 바꿉니다: %s", e)
+            self._use_cpu()
+            return self._transcribe(y, prompt)
+
+    def _transcribe(self, y: np.ndarray, prompt: str) -> list[WordTiming]:
+        model = self._get_model()
         segments, _ = model.transcribe(
             y.astype(np.float32),
             language="ko",

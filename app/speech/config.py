@@ -87,6 +87,17 @@ class SpeechConfig:
     # 길게(5음절 이상) 다른 말로 인식된 구간은 한 단어가 잘못 들려도(예: 바로 뒤 단어를 엉뚱하게 인식) 통째로 버리지 않는다
     deviation_long_min_word_prob: float = 0.4
 
+    # 한국어 CTC 보조 모델로 반복(더듬기)을 찾는 기능. 기본 켜짐. 끄려면 환경변수 SPEECH_CTC_REPEAT=0 (torch/transformers 가 없으면 자동으로 건너뜀).
+    # Whisper 는 같은 말을 두 번 하면 한 번으로 줄여 적어 반복을 놓치는데, CTC 는 들린 소리를 그대로 적어 반복이 남는다.
+    # 12개 녹음에서 거리 0.25~0.34 는 실제 반복 1곳만 잡고 오탐 0, 0.45 부터 오탐이 생겨 0.34 로 정했다.
+    ctc_repeat: bool = True
+    ctc_model: str = "kresnik/wav2vec2-large-xlsr-korean"
+    ctc_repeat_distance: float = 0.34
+    ctc_repeat_min_syllables: int = 3
+    ctc_repeat_max_syllables: int = 7
+    ctc_repeat_max_gap_s: float = 1.6
+    ctc_repeat_pad_ms: int = 100
+
     end_rise_st: float = 3.0
     end_rise_min_pitched: int = 4
     min_habit_count: int = 2

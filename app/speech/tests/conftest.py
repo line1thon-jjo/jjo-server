@@ -46,3 +46,10 @@ def _wav_reader_without_ffmpeg():
     mp.setattr(audio_io.subprocess, "run", _fake_ffmpeg)
     yield
     mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _no_ctc_model_in_tests(monkeypatch):
+    # 보조 모델(torch/transformers)이 깔린 PC 에서도 테스트가 모델을 내려받거나 돌리지 않게 기본으로 끈다.
+    # 보조 모델을 시험하는 test_ctc_repeat.py 는 스스로 켠다.
+    monkeypatch.setenv("SPEECH_CTC_REPEAT", "0")
