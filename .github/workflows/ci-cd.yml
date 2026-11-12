@@ -34,10 +34,14 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}  # 없으면 22
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}  # 없으면 ubuntu
         run: |
+          PORT="${DEPLOY_PORT:-22}"
+          USER_NAME="${DEPLOY_USER:-ubuntu}"
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p "$PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           # 서버의 authorized_keys 가 이 키로는 deploy.sh 만 실행하게 막아 두었다
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes ubuntu@"$DEPLOY_HOST"
+          ssh -p "$PORT" -i ~/.ssh/deploy_key -o BatchMode=yes "$USER_NAME@$DEPLOY_HOST"
